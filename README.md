@@ -1,6 +1,6 @@
 # JsonViewer 📝
 
-**JsonViewer** is a lightweight, browser-based note-taking app focused on editing and storing JSON or plain text notes. It works offline using **IndexedDB**, and is built using **Bootstrap**, **Alpine.js**, and vanilla JavaScript.
+**JsonViewer** is a lightweight, browser-based note-taking app focused on editing and storing JSON or plain text notes. It works offline using **IndexedDB**, and is built using **Bootstrap**, **Alpine.js**, and vanilla JavaScript by AI.
 
 ## 🚀 Features
 
