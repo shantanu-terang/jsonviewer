@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JsonViewer – Lightweight JSON & Text Note App</title>
+    <meta name="title" content="JsonViewer – Lightweight JSON & Text Note App">
+    <meta name="description" content="JsonViewer is a fast and minimal note-taking app for JSON and text. Store, edit, and format your notes offline using IndexedDB with a beautiful UI built on Bootstrap and Alpine.js.">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" defer></script>
+
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .editor {
+            height: calc(100vh - 100px);
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+
+        /* end editor */
+
+        .sidebar-notes {
+            flex-grow: 1;
+            overflow-y: auto;
+            /* min-height: 0; */
+            height: calc(100vh - 100px);
+        }
+
+        .sidebar-notes li:hover {
+            background-color: #d8dde2;
+            cursor: pointer;
+        }
+
+        .sidebar-wrapper {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .list-group-item.active {
+            background-color: #8293ad !important;
+            border-color: #8293ad;
+        }
+
+        [x-cloak] {
+            display: none !important;
+        }
+
+        .form-control:focus {
+            box-shadow: none !important;
+        }
+
+        .editor-wrapper {
+            display: flex;
+            height: 100vh;
+            width: 100%;
+            overflow: hidden;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .line-numbers {
+            background: #f8f9fa;
+            color: #888;
+            padding: 0.5rem;
+            text-align: right;
+            white-space: pre;
+            user-select: none;
+            border-right: 1px solid #ccc;
+            overflow: hidden;
+
+            height: calc(100vh - 100px);
+            overflow-y: hidden;
+            /* white-space: pre-wrap; */
+        }
+
+        textarea {
+            flex: 1;
+            border: none;
+            padding: 0.5rem;
+            resize: none;
+            outline: none;
+            font-family: inherit;
+            font-size: inherit;
+            line-height: inherit;
+            overflow: auto;
+            height: 100%;
+        }
+
+        .line-numbers .current-line {
+            background-color: #ffdf5d;
+            /* Highlight color */
+            padding: 2px;
+            font-weight: bold;
+        }
+    </style>
+
+
+
+</head>
+
+<body>
+    <div x-data="JsonViewerApp()" x-cloak>
+        <div class="container-fluid h-100">
+            <div class="row h-100">
+                <!-- Sidebar -->
+                <div class="col-md-3 border-end sidebar-wrapper">
+
+                    <div class="p-3 border-bottom">
+                        <h4 class="d-inline">JsonViewer</h4>
+                        <!-- <button class="btn btn-sm btn-primary float-end" @click="createNewNote">New</button> -->
+                        <div class="btn-group btn-group-sm float-end">
+                            <button class="btn btn-primary" @click="createNewNote">New</button>
+                            <button class="btn btn-outline-secondary" @click="exportNotes">Export</button>
+                            <button class="btn btn-outline-secondary" @click="$refs.importFile.click()">Import</button>
+                            <input type="file" accept=".json" class="d-none" x-ref="importFile" @change="importNotes" />
+                        </div>
+                    </div>
+                    <div class="sidebar-notes">
+                        <ul class="list-group list-group-flush">
+                            <template x-for="note in [...notes].reverse()" :key="note.id">
+                                <li class="list-group-item d-flex justify-content-between align-items-center"
+                                    :class="{ 'active text-white': note.id === currentNote.id }"
+                                    @click="loadNote(note.id)">
+                                    <span x-text="note.title || (note.content || '').substring(0, 20)"></span>
+                                    <button class="btn btn-sm btn-danger" @click.stop="deleteNote(note.id)">✕</button>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Content Area -->
+                <div class="col-md-9 d-flex flex-column p-3">
+                    <div class="input-group mb-2">
+                        <input type="text" class="form-control" placeholder="Note Title" x-model="currentNote.title"
+                            @input="autoSave()" />
+                        <button class="btn btn-outline-secondary" @click="formatJson">Format JSON</button>
+                        <button class="btn btn-outline-secondary" @click="clearForm">Clear</button>
+                        <button class="btn btn-outline-info" @click="toggleAbout()">About</button>
+                    </div>
+                    <div class="editor-wrapper">
+                        <div class="line-numbers" x-ref="lines"></div>
+                        <textarea x-ref="editor" class="form-control editor" x-model="currentNote.content"
+                            @input="autoSave()" @scroll="syncScroll()" @keydown.tab.prevent="insertTab"
+                            @click="syncLineNumbers()" @keyup="syncLineNumbers()"
+                            placeholder="Type your JSON or text here..."></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <template x-if="showAbout">
+            <div class="position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-50 d-flex justify-content-center align-items-center"
+                x-cloak x-transition @click.self="toggleAbout()" style="z-index: 1050;">
+                <div class="bg-white rounded p-4 shadow" style="max-width: 500px; width: 100%;">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">About JsonViewer</h5>
+                        <button class="btn-close" @click="toggleAbout()"></button>
+                    </div>
+                    <p><strong>JsonViewer</strong> is a lightweight note-taking app that stores JSON or text using
+                        IndexedDB.</p>
+                    <p>Built with <strong>Bootstrap</strong>, <strong>Alpine.js</strong>, and ❤️.</p>
+                    <div class="text-end">
+                        <button class="btn btn-secondary" @click="toggleAbout()">Close</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <!-- Toast container -->
+        <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1055">
+            <div id="jsonToast" class="toast align-items-center text-bg-info border-0" role="alert"
+                aria-live="assertive" aria-atomic="true">
+                <div class="d-flex">
+                    <div class="toast-body" id="jsonToastBody">
+                        <!-- Message will be injected here -->
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                        aria-label="Close"></button>
+                </div>
+            </div>
+        </div>
+
+
+    </div>
+
+    <script>
+        function JsonViewerApp() {
+            return {
+                db: null,
+                notes: [],
+                currentNote: { id: null, title: `Untitled - ${(new Date()).toLocaleString()}`, content: '' },
+                showAbout: false,
+                currentLine: 1,
+                lineNumbers: 1,
+
+                toggleAbout() {
+                    this.showAbout = !this.showAbout;
+                },
+
+                clearForm() {
+                    this.currentNote.content = '';
+                    // it will not save it will just clear the form
+                },
+
+                showToast(message, type = "info") {
+                    document.getElementById('jsonToastBody').textContent = message;
+                    const toastEl = document.getElementById('jsonToast');
+                    // const toastEl = this.$refs.jsonToast
+                    toastEl.classList.remove('text-bg-info')
+                    toastEl.classList.remove('text-bg-danger')
+                    toastEl.classList.remove('text-bg-success')
+                    toastEl.classList.remove('text-bg-warning')
+
+                    toastEl.classList.add(`text-bg-${type}`)
+                    const toast = new bootstrap.Toast(toastEl);
+                    toast.show();
+                },
+                updateLineNumbers() {
+                    this.lineNumbers = this.currentNote.content.split('\n').length;
+                    const lineNumbersDiv = this.$refs.lines;
+                    lineNumbersDiv.innerHTML = '';
+                    for (let i = 1; i <= this.lineNumbers; i++) {
+                        lineNumbersDiv.innerHTML += `<div class="${i === this.currentLine ? 'current-line' : ''}" style="height:24px;">${i}</div>`;
+                    }
+                    this.$nextTick(() => {
+                        this.syncScroll();
+                    });
+                },
+
+                syncScroll() {
+                    this.$refs.lines.scrollTop = this.$refs.editor.scrollTop;
+                },
+
+                syncLineNumbers() {
+                    const editor = this.$refs.editor;
+
+                    // Get cursor position in the textarea
+                    const cursorPosition = editor.selectionStart;
+
+                    // Get all text before the cursor
+                    const textBeforeCursor = editor.value.substring(0, cursorPosition);
+
+                    // Count the number of line breaks before the cursor
+                    const lineCount = textBeforeCursor.split('\n').length;
+
+                    this.currentLine = lineCount;
+                },
+
+                insertTab(e) {
+                    const textarea = this.$refs.editor;
+                    const start = textarea.selectionStart;
+                    const end = textarea.selectionEnd;
+
+                    // Insert tab character at the cursor position
+                    textarea.value = textarea.value.substring(0, start) + '\t' + textarea.value.substring(end);
+
+                    // Move the cursor to the correct position
+                    textarea.selectionStart = textarea.selectionEnd = start + 1;
+
+                    // Trigger Alpine binding update
+                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                },
+                init() {
+                    const request = indexedDB.open("JsonViewerDB", 1);
+
+                    request.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        db.createObjectStore("notes", { keyPath: "id", autoIncrement: true });
+                    };
+
+                    request.onsuccess = (e) => {
+                        this.db = e.target.result;
+                        this.fetchNotes();
+                    };
+
+                    request.onerror = (e) => {
+                        console.error("Database error:", e.target.errorCode);
+                    };
+
+                    Alpine.effect(() => {
+                        this.updateLineNumbers();
+                        this.syncScroll();
+                        this.syncLineNumbers();
+                    });
+                },
+
+                fetchNotes() {
+                    const tx = this.db.transaction("notes", "readonly");
+                    const store = tx.objectStore("notes");
+                    const request = store.getAll();
+
+                    request.onsuccess = () => {
+                        this.notes = request.result;
+
+                        const lastNoteId = parseInt(localStorage.getItem("lastNoteId"), 10);
+                        const lastNote = this.notes.find(n => n.id === lastNoteId);
+
+                        if (lastNote) {
+                            this.loadNote(lastNote.id);
+                        } else if (this.notes.length > 0) {
+                            this.loadNote(this.notes[this.notes.length-1].id);
+                        }
+                    };
+                },
+
+                autoSave() {
+                    if (!this.currentNote.content.trim()) return;
+                    console.log("Auto-saving...");
+                    const tx = this.db.transaction("notes", "readwrite");
+                    const store = tx.objectStore("notes");
+                    if (this.currentNote.id) {
+                        store.put({ id: this.currentNote.id, title: this.currentNote.title, content: this.currentNote.content });
+                        this.fetchNotes();
+                    } else {
+                        const newNote = { title: this.currentNote.title, content: this.currentNote.content };
+                        const addRequest = store.add(newNote);
+                        addRequest.onsuccess = (e) => {
+                            newNote.id = e.target.result;
+                            this.currentNote = newNote;
+                            localStorage.setItem("lastNoteId", newNote.id);
+                            this.fetchNotes();
+                        };
+                    }
+
+                },
+
+                createNewNote() {
+                    this.currentNote = { id: null, title: `Untitled - ${(new Date()).toLocaleString()}`, content: '' };
+                },
+
+                loadNote(id) {
+                    const tx = this.db.transaction("notes", "readonly");
+                    const store = tx.objectStore("notes");
+                    const request = store.get(id);
+
+                    request.onsuccess = () => {
+                        this.currentNote = request.result;
+                        localStorage.setItem("lastNoteId", id);
+
+                    };
+                },
+
+                deleteNote(id) {
+                    const tx = this.db.transaction("notes", "readwrite");
+                    const store = tx.objectStore("notes");
+                    store.delete(id);
+                    this.showToast(`Note "${this.currentNote.title}" deleted`, 'success')
+                    if (this.currentNote.id === id) {
+                        localStorage.removeItem("lastNoteId");
+                        this.createNewNote();
+                    }
+                    this.fetchNotes();
+                },
+
+                formatJson() {
+                    try {
+                        const obj = JSON.parse(this.currentNote.content);
+                        this.currentNote.content = JSON.stringify(obj, null, 4);
+                        this.autoSave();
+                    } catch (e) {
+                        // alert("Invalid JSON. Cannot format.");
+                        this.showToast("Invalid JSON. Cannot format.", "danger");
+                    }
+                },
+                exportNotes() {
+                    const json = JSON.stringify(this.notes, null, 2);
+                    const blob = new Blob([json], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `backup-notes ${(new Date()).toLocaleString()}.json`.split(' ').join('-').split(':').join('-').split(',').join('-').split('/').join('-');
+                    a.click();
+
+                    URL.revokeObjectURL(url);
+                },
+
+                importNotes(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        try {
+                            const data = JSON.parse(e.target.result);
+                            if (!Array.isArray(data)) throw new Error("Invalid format");
+
+                            const tx = this.db.transaction("notes", "readwrite");
+                            const store = tx.objectStore("notes");
+
+                            data.forEach(note => {
+                                // Ensure proper structure
+                                if (note.title && note.content) {
+                                    store.add({ title: note.title, content: note.content });
+                                }
+                            });
+
+                            tx.oncomplete = () => {
+                                this.fetchNotes();
+                                // alert("Import completed.");
+                                this.showToast("Import completed.", "success");
+                            };
+                        } catch (err) {
+                            // alert("Failed to import notes: " + err.message);
+                            this.showToast("Failed to import notes: " + err.message, "danger");
+                        }
+                    };
+                    reader.readAsText(file);
+
+                    // Clear the input value so same file can be imported again
+                    event.target.value = '';
+                },
+
+            }
+        }
+    </script>
+
+</body>
+
+</html>
